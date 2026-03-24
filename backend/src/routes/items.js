@@ -1,44 +1,65 @@
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const router = express.Router();
-const DATA_PATH = path.join(__dirname, '../../../data/items.json');
+const express = require("express");
+const fs = require("fs/promises"); // promise based versio of fs
+const path = require("path");
+const { validateItem } = require("../utils/validation");
 
-// Utility to read data (intentionally sync to highlight blocking issue)
-function readData() {
-  const raw = fs.readFileSync(DATA_PATH);
+const router = express.Router();
+const DATA_PATH = path.join(__dirname, "../../../data/items.json");
+
+// Utility to read data (changed to asynchronous)
+async function readData() {
+  const raw = await fs.readFile(DATA_PATH, "utf8");
   return JSON.parse(raw);
 }
 
-// GET /api/items
-router.get('/', (req, res, next) => {
+// Utility to write data (asynchronous implemented as well)
+async function writeData(data) {
+  await fs.writeFile(DATA_PATH, JSON.stringify(data, null, 2), "utf8");
+}
+
+// GET /api/items (updated to asynchronous route)
+router.get("/", async (req, res, next) => {
   try {
-    const data = readData();
-    const { limit, q } = req.query;
+    const data = await readData();
+    const { q, limit, page } = req.query;
+
     let results = data;
 
     if (q) {
-      // Simple substring search (sub‑optimal)
-      results = results.filter(item => item.name.toLowerCase().includes(q.toLowerCase()));
+      results = results.filter((item) =>
+        item.name.toLowerCase().includes(String(q).toLowerCase()),
+      );
     }
 
-    if (limit) {
-      results = results.slice(0, parseInt(limit));
-    }
+    const totalCount = results.length;
+    const pageSize = Number(limit) || totalCount || 1;
+    const pageNumber = Number(page) || 1;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
-    res.json(results);
+    const startIndex = (pageNumber - 1) * pageSize;
+    const paginatedResults = results.slice(startIndex, startIndex + pageSize);
+
+    res.json({
+      canGoNext: pageNumber < totalPages,
+      canGoPrevious: pageNumber > 1,
+      totalPages,
+      pageSize,
+      pageNumber,
+      totalCount,
+      items: paginatedResults,
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/items/:id
-router.get('/:id', (req, res, next) => {
+// GET /api/items/:id (updated to asynchronous route)
+router.get("/:id", async (req, res, next) => {
   try {
-    const data = readData();
-    const item = data.find(i => i.id === parseInt(req.params.id));
+    const data = await readData();
+    const item = data.find((i) => i.id === parseInt(req.params.id));
     if (!item) {
-      const err = new Error('Item not found');
+      const err = new Error("Item not found");
       err.status = 404;
       throw err;
     }
@@ -49,15 +70,32 @@ router.get('/:id', (req, res, next) => {
 });
 
 // POST /api/items
-router.post('/', (req, res, next) => {
+router.post("/", async (req, res, next) => {
   try {
-    // TODO: Validate payload (intentional omission)
     const item = req.body;
-    const data = readData();
-    item.id = Date.now();
-    data.push(item);
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-    res.status(201).json(item);
+
+    // TODO: Validation implemented
+    const errors = validateItem(item);
+    if (errors.length > 0) {
+      return res.status(400).json({
+        message: "Validation failed",
+        errors,
+      });
+    }
+
+    const data = await readData();
+
+    const newItem = {
+      id: Date.now(),
+      name: item.name.trim(),
+      category: item.category.trim(),
+      price: item.price,
+    };
+
+    data.push(newItem);
+    await writeData(data);
+
+    res.status(201).json(newItem);
   } catch (err) {
     next(err);
   }

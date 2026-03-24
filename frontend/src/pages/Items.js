@@ -1,32 +1,64 @@
-import React, { useEffect } from 'react';
-import { useData } from '../state/DataContext';
-import { Link } from 'react-router-dom';
+import React, { useEffect } from "react";
+import { useData } from "../state/DataContext";
+import { Link } from "react-router-dom";
+import Loader from "../components/loader";
+import Pagination from "../components/pagination";
+import Input from "../components/input";
 
 function Items() {
-  const { items, fetchItems } = useData();
+  const { items, fetchItems, itemsPagination } = useData();
+
+  const paginationHandler = async (page) => {
+    await loadItems(true, page, "");
+  };
+
+  const loadItems = async (isMounted, page, query) => {
+    try {
+      await fetchItems(isMounted, page, query);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
+    let isMounted = true;
+    loadItems(isMounted, 1, "");
 
-    // Intentional bug: setState called after component unmount if request is slow
-    fetchItems().catch(console.error);
-
-    // Clean‑up to avoid memory leak (candidate should implement)
     return () => {
-      active = false;
+      isMounted = false;
     };
   }, [fetchItems]);
 
-  if (!items.length) return <p>Loading...</p>;
+  if (!items.length) return <Loader />;
 
   return (
-    <ul>
-      {items.map(item => (
-        <li key={item.id}>
-          <Link to={'/items/' + item.id}>{item.name}</Link>
-        </li>
-      ))}
-    </ul>
+    <div className="content-area">
+      {/* Search */}
+      <div className="search">
+        <Input
+          placeholder="Enter search query and click anywhere to search"
+          onChange={async (e) => {
+            await loadItems(true, 1, e);
+          }}
+        />
+      </div>
+
+      {/* List */}
+      <div className="grid grid-6 gap">
+        {items.map((item) => (
+          <div className="item" key={item.id}>
+            <div className="default-image"></div>
+            <Link to={"/items/" + item.id}>{item.name}</Link>
+          </div>
+        ))}
+      </div>
+
+      {/* Pagination */}
+      <Pagination
+        itemsPagination={itemsPagination}
+        onChange={paginationHandler}
+      />
+    </div>
   );
 }
 
